@@ -1,2 +1,4 @@
 sqs:
-  queue_name: "test"
+  queue_name: "akash-s3-notifications-queue"
+s3:
+  bucket: "akash-reporting-test"
