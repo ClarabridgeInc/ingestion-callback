@@ -5,7 +5,7 @@
 golangBuildPipeline([
     'teamName': 'data-pipelines',
     'slackChannel': '#data-pipelines-bots',
-    'goBuildImageTag': '1.21',
+    'goBuildImageTag': '1.20',
     'skipPublishImage': true,
     'setLatestTagForBranch': 'main'
 ]){
