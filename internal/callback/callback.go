@@ -1,6 +1,7 @@
 package callback
 
 import (
+	"fmt"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"io"
@@ -10,7 +11,7 @@ import (
 )
 
 type Executor struct {
-	*http.Client
+	HTTPClient
 	*zap.Logger
 }
 
@@ -19,12 +20,16 @@ type Config struct {
 	*zap.Logger
 }
 
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
 func (c *Executor) Execute(uri string, body io.Reader) error {
 	req, err := http.NewRequest("POST", uri, body)
 	req.Header.Set("Content-Type", "application/json")
 	if err != nil {
 		c.Logger.Error("failed to create request:", zap.Error(err))
-		return err
+		return fmt.Errorf("failed to create http request: %v", err)
 	}
 
 	bodyarr, _ := httputil.DumpRequest(req, true)
@@ -32,7 +37,7 @@ func (c *Executor) Execute(uri string, body io.Reader) error {
 	resp, err := c.Do(req)
 	if err != nil {
 		c.Logger.Error("could not execute callback:", zap.Error(err))
-		return err
+		return fmt.Errorf("could not execute callback: %v", err)
 	}
 
 	if resp.StatusCode != 200 {

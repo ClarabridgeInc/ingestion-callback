@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"io"
@@ -32,7 +33,7 @@ func (r *S3Reader) Read(ctx context.Context, key string) (io.ReadCloser, error) 
 
 	res, err := GetObject(ctx, r.Reader, getObjectInput)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetObject failed: %v", err)
 	}
 	return res.Body, nil
 }

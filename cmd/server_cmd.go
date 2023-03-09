@@ -55,8 +55,8 @@ var (
 			c := message.Config{
 				Logger: log.Named("message.consumer"),
 				//NumWorkers: 5,
-				Queue:     message.Queue{Name: global.cfg.SQS.Name},
-				SQSClient: sqsClient,
+				Queue:           message.Queue{Name: global.cfg.SQS.Name},
+				ReceiverDeleter: sqsClient,
 				S3Reader: storage.S3Reader{
 					Bucket: global.cfg.S3.Bucket,
 					Reader: s3Client,

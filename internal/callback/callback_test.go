@@ -36,20 +36,38 @@ func TestCallBack(t *testing.T) {
 	type test struct {
 		Uri         string
 		ShouldError bool
+		ErrMessage  string
 	}
 
-	tests := []test{
-		{Uri: mockServer.URL + "/callback", ShouldError: false},
-		{Uri: mockServer.URL + "/nonexistent", ShouldError: true},
-		{Uri: "https://nonesistent-server", ShouldError: true},
+	tests := map[string]test{
+		"valid callback does not error": {Uri: mockServer.URL + "/callback", ShouldError: false},
+		"invalid callback endpoint returns error": {
+			Uri: mockServer.URL + "/nonexistent", ShouldError: true,
+			ErrMessage: "callback execution failed with non 200 status code",
+		},
+		"invalid callback server returns error": {
+			Uri: "https://nonesistent-server", ShouldError: true,
+			ErrMessage: "could not execute callback",
+		},
+		//"invalid uri specification returns error": {
+		//	Uri: "https://", ShouldError: true,
+		//	ErrMessage: "failed to create http request",
+		//},
 	}
 
-	for _, tc := range tests {
-		err := executor.Execute(tc.Uri, strings.NewReader("callback"))
-		if !tc.ShouldError {
-			assert.NoError(t, err)
-		} else {
-			assert.Error(t, err, "callback execution failed with non 200 status code")
-		}
+	for name, tc := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				err := executor.Execute(tc.Uri, strings.NewReader("callback"))
+				if !tc.ShouldError {
+					assert.NoError(t, err)
+				} else {
+					assert.ErrorContainsf(
+						t, err, tc.ErrMessage, "expected error containing %v, got %v",
+						tc.ErrMessage, err,
+					)
+				}
+			},
+		)
 	}
 }

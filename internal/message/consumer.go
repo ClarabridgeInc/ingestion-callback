@@ -17,7 +17,7 @@ import (
 
 type Consumer struct {
 	*zap.Logger
-	sqsClient *sqs.Client
+	sqsClient ReceiverDeleter
 	s3Reader  storage.S3Reader
 	queueName string
 	queueUrl  *string
@@ -31,7 +31,7 @@ type Queue struct {
 type Config struct {
 	*zap.Logger
 	Queue
-	SQSClient *sqs.Client
+	ReceiverDeleter
 	storage.S3Reader
 	callback.Executor
 }
@@ -70,6 +70,11 @@ type DeleterAPI interface {
 	DeleteMessage(ctx context.Context, params *sqs.DeleteMessageInput, optFns ...func(*sqs.Options)) (
 		*sqs.DeleteMessageOutput, error,
 	)
+}
+
+type ReceiverDeleter interface {
+	ReceiverAPI
+	DeleterAPI
 }
 
 func GetQueueUrl(c context.Context, api ReceiverAPI, input *sqs.GetQueueUrlInput) (*sqs.GetQueueUrlOutput, error) {
@@ -122,57 +127,73 @@ func (n *Consumer) Consume(ctx context.Context) {
 				n.Error("got an error while receiving messages:", zap.Error(err))
 				return
 			}
-			n.processMessages(ctx, msgResult.Messages)
+			for _, v := range msgResult.Messages {
+				err = n.ProcessMessage(ctx, v)
+				if err != nil {
+					n.Logger.Error("error processing message: ", zap.String("error_message_id", *v.MessageId))
+				} else {
+					err = n.deleteMessage(ctx, v.ReceiptHandle)
+					if err != nil {
+						n.Logger.Error(
+							"could not delete message: ", zap.String("failed_delete_message_id", *v.MessageId),
+						)
+					}
+				}
+			}
 		}
 	}
 }
 
-func (n *Consumer) processMessages(ctx context.Context, m []types.Message) {
-	for _, v := range m {
-		n.Logger.Info("Message ID:", zap.String("messageId", *v.MessageId))
-		n.Logger.Info("Message Body:", zap.String("messageBody", *v.Body))
-		// get the s3 document from the sqs notification's metadata
-		notification := sqsNotification{}
-		json.Unmarshal([]byte(*v.Body), &notification)
-		if notification.Records[0].EventName != "ObjectCreated:Put" {
-			n.Logger.Info("deleting non ObjectCreated:Put notification")
-		} else {
-			if notification.Records[0].Metadata.Object.Key != "" {
-				n.Logger.Info(
-					"s3 object to retrieve is:", zap.String(
-						"s3_object_retrieve",
-						notification.Records[0].Metadata.Object.Key,
-					),
-				)
-			}
-			res, err := n.s3Reader.Read(ctx, notification.Records[0].Metadata.Object.Key)
-			if err != nil {
-				n.Logger.Error("could not read s3 document based on sqs message: ", zap.Error(err))
-				return
-			}
+func (n *Consumer) ProcessMessage(ctx context.Context, m types.Message) error {
+	n.Logger.Debug("Message ID:", zap.String("messageId", *m.MessageId))
+	n.Logger.Debug("Message Body:", zap.String("messageBody", *m.Body))
 
-			// deserialize into IngestDocument to find out callback url
-			doc := &ingest.IngestDocument{}
-			s3body, err := io.ReadAll(res)
-			if err != nil {
-				n.Logger.Error("could deserialize s3 document:", zap.Error(err))
-				return
-			}
+	// get the s3 document from the sqs notification's metadata
+	notification := sqsNotification{}
+	err := json.Unmarshal([]byte(*m.Body), &notification)
+	if err != nil {
+		n.Logger.Error("could not deserialize sqs notification")
+		return err
+	}
 
-			if err = proto.Unmarshal(s3body, doc); err != nil {
-				n.Logger.Error("could not unmarshal into ingest document", zap.Error(err))
-				return
-			}
-			n.Logger.Info("ingest document is: ", zap.String("ingest_document", doc.String()))
-			// call the callback url
-			configMap := doc.Topology.GetConfiguration()
-			if c, ok := configMap["callback_url"]; ok {
-				n.Logger.Info("calling the callback at:", zap.String("callback_url", c))
-				n.Executor.Execute(c, strings.NewReader(doc.String()))
+	if notification.Records[0].EventName == "ObjectCreated:Put" && notification.Records[0].Metadata.Object.Key != "" {
+		n.Logger.Info(
+			"s3 object to retrieve is:", zap.String(
+				"s3_object_retrieve",
+				notification.Records[0].Metadata.Object.Key,
+			),
+		)
+		res, err := n.s3Reader.Read(ctx, notification.Records[0].Metadata.Object.Key)
+		if err != nil {
+			n.Logger.Error("could not read s3 document based on sqs message: ", zap.Error(err))
+			return err
+		}
+
+		// deserialize into IngestDocument to find out callback url
+		doc := &ingest.IngestDocument{}
+		s3body, err := io.ReadAll(res)
+		if err != nil {
+			n.Logger.Error("could deserialize s3 document:", zap.Error(err))
+			return err
+		}
+
+		if err = proto.Unmarshal(s3body, doc); err != nil {
+			n.Logger.Error("could not unmarshal into ingest document", zap.Error(err))
+			return err
+		}
+		n.Logger.Debug("ingest document is: ", zap.String("ingest_document", doc.String()))
+
+		// call the callback url
+		configMap := doc.Topology.GetConfiguration()
+		if c, ok := configMap["callback_url"]; ok {
+			n.Logger.Debug("calling the callback at:", zap.String("callback_url", c))
+			err = n.Executor.Execute(c, strings.NewReader(doc.String()))
+			if err != nil {
+				return err
 			}
 		}
-		n.deleteMessage(ctx, v.ReceiptHandle)
 	}
+	return nil
 }
 
 func (n *Consumer) deleteMessage(ctx context.Context, receiptHandle *string) error {
@@ -192,7 +213,7 @@ func (n *Consumer) deleteMessage(ctx context.Context, receiptHandle *string) err
 func NewConsumer(ctx context.Context, config Config) (Consumer, error) {
 	c := Consumer{
 		Logger:    config.Logger,
-		sqsClient: config.SQSClient,
+		sqsClient: config.ReceiverDeleter,
 		s3Reader:  config.S3Reader,
 		queueName: config.Name,
 		Executor:  config.Executor,
