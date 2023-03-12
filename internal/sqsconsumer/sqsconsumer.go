@@ -2,6 +2,7 @@ package sqsconsumer
 
 import "C"
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"github.com/ClarabridgeInc/ingestion-callback/internal/callback"
@@ -12,7 +13,6 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"io"
-	"strings"
 	"time"
 )
 
@@ -159,8 +159,10 @@ func (c *Consumer) ProcessMessage(ctx context.Context, m types.Message) error {
 		}
 
 		// deserialize into IngestDocument to find out callback url
+		var buf bytes.Buffer
+		s3Reader := io.TeeReader(res, &buf)
 		doc := &ingest.IngestDocument{}
-		s3body, err := io.ReadAll(res)
+		s3body, err := io.ReadAll(s3Reader)
 		if err != nil {
 			c.Logger.Error("could deserialize s3 document:", zap.Error(err))
 			return err
@@ -176,7 +178,7 @@ func (c *Consumer) ProcessMessage(ctx context.Context, m types.Message) error {
 		configMap := doc.Topology.GetConfiguration()
 		if callback, ok := configMap["callback_url"]; ok {
 			c.Logger.Debug("calling the callback at:", zap.String("callback_url", callback))
-			err = c.Executor.Execute(ctx, callback, strings.NewReader(doc.String()))
+			err = c.Executor.Execute(ctx, callback, &buf)
 			if err != nil {
 				return err
 			}
