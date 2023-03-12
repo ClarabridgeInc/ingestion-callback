@@ -1,8 +1,10 @@
-package message
+package sqsconsumer
 
 import (
+	"bytes"
 	"context"
 	"github.com/ClarabridgeInc/ingestion-callback/internal/callback"
+	"github.com/ClarabridgeInc/ingestion-callback/internal/pb/services/ingest"
 	"github.com/ClarabridgeInc/ingestion-callback/internal/storage"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -12,26 +14,52 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
+	"time"
 )
 
 type MockReader struct {
+	MockServerUrl string
 }
 
 func (m *MockReader) GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(options *s3.Options)) (
 	*s3.GetObjectOutput, error,
 ) {
 	if *params.Key == "test-key" {
-		protofile, err := os.ReadFile("fixtures/test.pb")
-		if err != nil {
-			panic("could not read test fixture: fixtures/test.pb")
+		testDocument := &ingest.IngestDocument{
+			Version:                0,
+			Uuid:                   "test-uuid",
+			RoutingKey:             "test-routing",
+			NaturalId:              "test-natural-id",
+			Source:                 "call",
+			DocumentDate:           "test-date",
+			LanguageId:             "en",
+			Attributes:             nil,
+			Verbatims:              nil,
+			ImportApiRequest:       "",
+			DuplicateDetectionType: 0,
+			ClassificationResult:   nil,
+			DerivedAttributes:      nil,
+			Topology: &ingest.Topology{
+				Name: "agent_assist",
+				Configuration: map[string]string{
+					"callback_url": m.MockServerUrl,
+				},
+			},
 		}
+
+		byteMessage, err := proto.Marshal(testDocument)
+		if err != nil {
+			return nil, err
+		}
+
 		return &s3.GetObjectOutput{
-			Body: io.NopCloser(strings.NewReader(string(protofile))),
+			Body: io.NopCloser(bytes.NewReader(byteMessage)),
 		}, nil
 	}
 	return nil, errors.New("key does not exist")
@@ -64,7 +92,7 @@ func (s *MockSQSClient) ReceiveMessage(
 		Messages: []types.Message{
 			{
 				Body:          aws.String(string(notificationJson)),
-				MessageId:     aws.String("test-message-id"),
+				MessageId:     aws.String("test-sqsconsumer-id"),
 				ReceiptHandle: aws.String("test-receipt-handle"),
 			},
 		},
@@ -80,16 +108,6 @@ func (s *MockSQSClient) DeleteMessage(
 	return &sqs.DeleteMessageOutput{}, nil
 }
 
-type MockHttpClient struct {
-}
-
-func (m *MockHttpClient) Do(req *http.Request) (*http.Response, error) {
-	return &http.Response{
-		Status:     "SUCCESS",
-		StatusCode: 200,
-	}, nil
-}
-
 func TestConsumer(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	if err != nil {
@@ -97,18 +115,32 @@ func TestConsumer(t *testing.T) {
 		t.Fail()
 	}
 
+	mockServer := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/callback" {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte("string"))
+				} else {
+					w.WriteHeader(http.StatusNotFound)
+					w.Write([]byte(""))
+				}
+			},
+		),
+	)
+	defer mockServer.Close()
+
 	cfg := Config{
 		Logger:          logger,
 		Queue:           Queue{Name: "test-queue"},
 		ReceiverDeleter: &MockSQSClient{},
 		S3Reader: storage.S3Reader{
 			Bucket: "test-bucket",
-			Reader: &MockReader{},
+			Reader: &MockReader{
+				MockServerUrl: mockServer.URL + "/callback",
+			},
 		},
-		Executor: callback.Executor{
-			HTTPClient: &MockHttpClient{},
-			Logger:     logger,
-		},
+		Executor: callback.NewCallbackExecutor(callback.Config{Timeout: 5 * time.Second}),
 	}
 
 	ctx := context.TODO()
@@ -125,7 +157,7 @@ func TestConsumer(t *testing.T) {
 	}
 	testMessage := types.Message{
 		Body:          aws.String(string(notificationJson)),
-		MessageId:     aws.String("test-message-id"),
+		MessageId:     aws.String("test-sqsconsumer-id"),
 		ReceiptHandle: aws.String("test-receipt-handle"),
 	}
 	err = consumer.ProcessMessage(ctx, testMessage)

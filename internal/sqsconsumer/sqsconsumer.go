@@ -1,5 +1,6 @@
-package message
+package sqsconsumer
 
+import "C"
 import (
 	"context"
 	"encoding/json"
@@ -92,27 +93,15 @@ func DeleteMessage(c context.Context, api DeleterAPI, input *sqs.DeleteMessageIn
 	return api.DeleteMessage(c, input)
 }
 
-func (n *Consumer) Consume(ctx context.Context) {
-	getQueueInput := &sqs.GetQueueUrlInput{
-		QueueName: &n.queueName,
-	}
-
-	queueUrlResult, err := GetQueueUrl(ctx, n.sqsClient, getQueueInput)
-	if err != nil {
-		n.Error("got an error while getting queue url:", zap.Error(err))
-		return
-	}
-
-	queueUrl := queueUrlResult.QueueUrl
-
+func (c *Consumer) Consume(ctx context.Context) {
 	getMessageInput := &sqs.ReceiveMessageInput{
-		QueueUrl:            queueUrl,
+		QueueUrl:            c.queueUrl,
 		MaxNumberOfMessages: 10,
 	}
 
-	msgResult, err := GetMessages(ctx, n.sqsClient, getMessageInput)
+	msgResult, err := GetMessages(ctx, c.sqsClient, getMessageInput)
 	if err != nil {
-		n.Error("got an error while receiving messages:", zap.Error(err))
+		c.Error("got an error while receiving messages:", zap.Error(err))
 		return
 	}
 
@@ -122,20 +111,20 @@ func (n *Consumer) Consume(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			msgResult, err = GetMessages(ctx, n.sqsClient, getMessageInput)
+			msgResult, err = GetMessages(ctx, c.sqsClient, getMessageInput)
 			if err != nil {
-				n.Error("got an error while receiving messages:", zap.Error(err))
+				c.Error("got an error while receiving messages:", zap.Error(err))
 				return
 			}
 			for _, v := range msgResult.Messages {
-				err = n.ProcessMessage(ctx, v)
+				err = c.ProcessMessage(ctx, v)
 				if err != nil {
-					n.Logger.Error("error processing message: ", zap.String("error_message_id", *v.MessageId))
+					c.Logger.Error("error processing sqsconsumer: ", zap.String("error_message_id", *v.MessageId))
 				} else {
-					err = n.deleteMessage(ctx, v.ReceiptHandle)
+					err = c.deleteMessage(ctx, v.ReceiptHandle)
 					if err != nil {
-						n.Logger.Error(
-							"could not delete message: ", zap.String("failed_delete_message_id", *v.MessageId),
+						c.Logger.Error(
+							"could not delete sqsconsumer: ", zap.String("failed_delete_message_id", *v.MessageId),
 						)
 					}
 				}
@@ -144,28 +133,28 @@ func (n *Consumer) Consume(ctx context.Context) {
 	}
 }
 
-func (n *Consumer) ProcessMessage(ctx context.Context, m types.Message) error {
-	n.Logger.Debug("Message ID:", zap.String("messageId", *m.MessageId))
-	n.Logger.Debug("Message Body:", zap.String("messageBody", *m.Body))
+func (c *Consumer) ProcessMessage(ctx context.Context, m types.Message) error {
+	c.Logger.Debug("Message ID:", zap.String("messageId", *m.MessageId))
+	c.Logger.Debug("Message Body:", zap.String("messageBody", *m.Body))
 
 	// get the s3 document from the sqs notification's metadata
 	notification := sqsNotification{}
 	err := json.Unmarshal([]byte(*m.Body), &notification)
 	if err != nil {
-		n.Logger.Error("could not deserialize sqs notification")
+		c.Logger.Error("could not deserialize sqs notification")
 		return err
 	}
 
 	if notification.Records[0].EventName == "ObjectCreated:Put" && notification.Records[0].Metadata.Object.Key != "" {
-		n.Logger.Info(
+		c.Logger.Info(
 			"s3 object to retrieve is:", zap.String(
 				"s3_object_retrieve",
 				notification.Records[0].Metadata.Object.Key,
 			),
 		)
-		res, err := n.s3Reader.Read(ctx, notification.Records[0].Metadata.Object.Key)
+		res, err := c.s3Reader.Read(ctx, notification.Records[0].Metadata.Object.Key)
 		if err != nil {
-			n.Logger.Error("could not read s3 document based on sqs message: ", zap.Error(err))
+			c.Logger.Error("could not read s3 document based on sqs sqsconsumer: ", zap.Error(err))
 			return err
 		}
 
@@ -173,21 +162,21 @@ func (n *Consumer) ProcessMessage(ctx context.Context, m types.Message) error {
 		doc := &ingest.IngestDocument{}
 		s3body, err := io.ReadAll(res)
 		if err != nil {
-			n.Logger.Error("could deserialize s3 document:", zap.Error(err))
+			c.Logger.Error("could deserialize s3 document:", zap.Error(err))
 			return err
 		}
 
 		if err = proto.Unmarshal(s3body, doc); err != nil {
-			n.Logger.Error("could not unmarshal into ingest document", zap.Error(err))
+			c.Logger.Error("could not unmarshal into ingest document", zap.Error(err))
 			return err
 		}
-		n.Logger.Debug("ingest document is: ", zap.String("ingest_document", doc.String()))
+		c.Logger.Debug("ingest document is: ", zap.String("ingest_document", doc.String()))
 
 		// call the callback url
 		configMap := doc.Topology.GetConfiguration()
-		if c, ok := configMap["callback_url"]; ok {
-			n.Logger.Debug("calling the callback at:", zap.String("callback_url", c))
-			err = n.Executor.Execute(c, strings.NewReader(doc.String()))
+		if callback, ok := configMap["callback_url"]; ok {
+			c.Logger.Debug("calling the callback at:", zap.String("callback_url", callback))
+			err = c.Executor.Execute(ctx, callback, strings.NewReader(doc.String()))
 			if err != nil {
 				return err
 			}
@@ -196,17 +185,19 @@ func (n *Consumer) ProcessMessage(ctx context.Context, m types.Message) error {
 	return nil
 }
 
-func (n *Consumer) deleteMessage(ctx context.Context, receiptHandle *string) error {
+func (c *Consumer) deleteMessage(ctx context.Context, receiptHandle *string) error {
 	deleteMessageInput := sqs.DeleteMessageInput{
-		QueueUrl:      n.queueUrl,
+		QueueUrl:      c.queueUrl,
 		ReceiptHandle: receiptHandle,
 	}
-	_, err := DeleteMessage(ctx, n.sqsClient, &deleteMessageInput)
+	_, err := DeleteMessage(ctx, c.sqsClient, &deleteMessageInput)
 	if err != nil {
-		n.Logger.Error("could not delete SQS message: ", zap.String("receipt_handle", *receiptHandle), zap.Error(err))
+		c.Logger.Error(
+			"could not delete SQS sqsconsumer: ", zap.String("receipt_handle", *receiptHandle), zap.Error(err),
+		)
 		return err
 	}
-	n.Logger.Info("deleted message:", zap.String("deleted_receipt_handle", *receiptHandle))
+	c.Logger.Info("deleted sqsconsumer:", zap.String("deleted_receipt_handle", *receiptHandle))
 	return nil
 }
 
@@ -222,16 +213,16 @@ func NewConsumer(ctx context.Context, config Config) (Consumer, error) {
 	return c, nil
 }
 
-func (n *Consumer) init(ctx context.Context) {
+func (c *Consumer) init(ctx context.Context) {
 	getQueueInput := &sqs.GetQueueUrlInput{
-		QueueName: &n.queueName,
+		QueueName: &c.queueName,
 	}
 
-	queueUrlResult, err := GetQueueUrl(ctx, n.sqsClient, getQueueInput)
+	queueUrlResult, err := GetQueueUrl(ctx, c.sqsClient, getQueueInput)
 	if err != nil {
-		n.Error("got an error while getting queue url:", zap.Error(err))
+		c.Error("got an error while getting queue url:", zap.Error(err))
 		return
 	}
 
-	n.queueUrl = queueUrlResult.QueueUrl
+	c.queueUrl = queueUrlResult.QueueUrl
 }

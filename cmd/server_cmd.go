@@ -3,7 +3,7 @@ package cmd
 import (
 	"github.com/ClarabridgeInc/ingestion-callback/internal/callback"
 	"github.com/ClarabridgeInc/ingestion-callback/internal/health"
-	"github.com/ClarabridgeInc/ingestion-callback/internal/message"
+	"github.com/ClarabridgeInc/ingestion-callback/internal/sqsconsumer"
 	"github.com/ClarabridgeInc/ingestion-callback/internal/storage"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -41,29 +41,27 @@ var (
 			rootContext := cmd.Context()
 			cfg, err := config.LoadDefaultConfig(rootContext)
 			if err != nil {
-				panic("failed to initialize config, " + err.Error())
 				return err
 			}
-			sqsClient := sqs.NewFromConfig(cfg)
-			s3Client := s3.NewFromConfig(cfg)
+
 			callbackExecutor := callback.NewCallbackExecutor(
 				callback.Config{
 					Timeout: 30 * time.Second,
-					Logger:  log.Named("callback"),
 				},
 			)
-			c := message.Config{
-				Logger: log.Named("message.consumer"),
-				//NumWorkers: 5,
-				Queue:           message.Queue{Name: global.cfg.SQS.Name},
-				ReceiverDeleter: sqsClient,
-				S3Reader: storage.S3Reader{
-					Bucket: global.cfg.S3.Bucket,
-					Reader: s3Client,
+
+			consumer, err := sqsconsumer.NewConsumer(
+				rootContext, sqsconsumer.Config{
+					Logger:          log.Named("sqsconsumer.consumer"),
+					Queue:           sqsconsumer.Queue{Name: global.cfg.SQS.Name},
+					ReceiverDeleter: sqs.NewFromConfig(cfg),
+					S3Reader: storage.S3Reader{
+						Bucket: global.cfg.S3.Bucket,
+						Reader: s3.NewFromConfig(cfg),
+					},
+					Executor: callbackExecutor,
 				},
-				Executor: callbackExecutor,
-			}
-			consumer, err := message.NewConsumer(rootContext, c)
+			)
 			consumer.Consume(rootContext)
 			return http.ListenAndServe(serverCmdFlags.port, mux)
 		},

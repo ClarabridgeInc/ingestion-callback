@@ -1,8 +1,8 @@
 package callback
 
 import (
+	"context"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,10 +26,8 @@ func TestCallBack(t *testing.T) {
 	)
 	defer mockServer.Close()
 
-	logger, _ := zap.NewDevelopment()
 	cfg := Config{
 		Timeout: 5 * time.Second,
-		Logger:  logger,
 	}
 	executor := NewCallbackExecutor(cfg)
 
@@ -49,16 +47,12 @@ func TestCallBack(t *testing.T) {
 			Uri: "https://nonesistent-server", ShouldError: true,
 			ErrMessage: "could not execute callback",
 		},
-		//"invalid uri specification returns error": {
-		//	Uri: "https://", ShouldError: true,
-		//	ErrMessage: "failed to create http request",
-		//},
 	}
 
 	for name, tc := range tests {
 		t.Run(
 			name, func(t *testing.T) {
-				err := executor.Execute(tc.Uri, strings.NewReader("callback"))
+				err := executor.Execute(context.Background(), tc.Uri, strings.NewReader("callback"))
 				if !tc.ShouldError {
 					assert.NoError(t, err)
 				} else {

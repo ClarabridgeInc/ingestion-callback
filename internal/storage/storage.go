@@ -8,6 +8,7 @@ import (
 	"io"
 )
 
+// Reader defines read behavior that returns a *s3.GetObjectOutput
 type Reader interface {
 	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 }
