@@ -17,10 +17,6 @@ type Config struct {
 	Timeout time.Duration
 }
 
-type HTTPClient interface {
-	Do(req *http.Request) (*http.Response, error)
-}
-
 func (c *Executor) Execute(ctx context.Context, uri string, body io.Reader) error {
 	req, err := http.NewRequestWithContext(ctx, "POST", uri, body)
 	if err != nil {
