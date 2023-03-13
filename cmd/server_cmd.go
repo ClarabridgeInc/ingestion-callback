@@ -1,15 +1,8 @@
 package cmd
 
 import (
-	"github.com/ClarabridgeInc/ingestion-callback/internal/callback"
-	"github.com/ClarabridgeInc/ingestion-callback/internal/health"
-	"github.com/ClarabridgeInc/ingestion-callback/internal/sqsconsumer"
-	"github.com/ClarabridgeInc/ingestion-callback/internal/storage"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"ingestion-callback/internal/health"
 	"net/http"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -25,11 +18,11 @@ var (
 	}
 	serverCmd = &cobra.Command{
 		Use:           "server",
-		Short:         "Run ingestion-callback server",
+		Short:         "Run go-services-seed server",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			log := global.logger.Named("ingestion-callback")
+			log := global.logger.Named("go-services.seed")
 
 			// create http multiplexer
 			mux := http.NewServeMux()
@@ -38,31 +31,6 @@ var (
 			mux.Handle("/health", &health.API{Logger: log.Named("api.health")})
 
 			log.Debug(" >http handlers registered, starting server...")
-			rootContext := cmd.Context()
-			cfg, err := config.LoadDefaultConfig(rootContext)
-			if err != nil {
-				return err
-			}
-
-			callbackExecutor := callback.NewCallbackExecutor(
-				callback.Config{
-					Timeout: 30 * time.Second,
-				},
-			)
-
-			consumer, err := sqsconsumer.NewConsumer(
-				rootContext, sqsconsumer.Config{
-					Logger:          log.Named("sqsconsumer.consumer"),
-					Queue:           sqsconsumer.Queue{Name: global.cfg.SQS.Name},
-					ReceiverDeleter: sqs.NewFromConfig(cfg),
-					S3Reader: storage.S3Reader{
-						Bucket: global.cfg.S3.Bucket,
-						Reader: s3.NewFromConfig(cfg),
-					},
-					Executor: callbackExecutor,
-				},
-			)
-			consumer.Consume(rootContext)
 			return http.ListenAndServe(serverCmdFlags.port, mux)
 		},
 	}
