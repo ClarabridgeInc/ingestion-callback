@@ -38,25 +38,13 @@ var (
 			mux.Handle("/health", &health.API{Logger: log.Named("api.health")})
 
 			log.Debug(" >http handlers registered, starting server...")
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> parent of 1b95a0a (Merge pull request #2 from ClarabridgeInc/revert-1-DISC-29788)
+
 			rootContext := cmd.Context()
 			cfg, err := config.LoadDefaultConfig(rootContext)
 			if err != nil {
 				return err
 			}
 
-<<<<<<< HEAD
-=======
-			callbackExecutor := callback.NewCallbackExecutor(
-				callback.Config{
-					Timeout: 30 * time.Second,
-				},
-			)
-
->>>>>>> parent of 1b95a0a (Merge pull request #2 from ClarabridgeInc/revert-1-DISC-29788)
 			consumer, err := sqsconsumer.NewConsumer(
 				rootContext, sqsconsumer.Config{
 					Logger:          log.Named("sqsconsumer.consumer"),
@@ -66,7 +54,6 @@ var (
 						Bucket: global.cfg.S3.Bucket,
 						Reader: s3.NewFromConfig(cfg),
 					},
-<<<<<<< HEAD
 					Executor: callback.NewCallbackExecutor(
 						callback.Config{
 							Timeout: 30 * time.Second,
@@ -74,15 +61,7 @@ var (
 					),
 				},
 			)
-			consumer.Consume(rootContext)
-=======
->>>>>>> main
-=======
-					Executor: callbackExecutor,
-				},
-			)
-			consumer.Consume(rootContext)
->>>>>>> parent of 1b95a0a (Merge pull request #2 from ClarabridgeInc/revert-1-DISC-29788)
+			consumer.Consume(rootContext)					
 			return http.ListenAndServe(serverCmdFlags.port, mux)
 		},
 	}
