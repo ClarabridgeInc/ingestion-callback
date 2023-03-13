@@ -1,2 +1,2 @@
 # ingore protobuf
-pb
+internal/pb
