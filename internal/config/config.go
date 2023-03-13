@@ -2,16 +2,17 @@ package config
 
 import (
 	"fmt"
-	"github.com/ClarabridgeInc/ingestion-callback/internal/sqsconsumer"
-	"github.com/ClarabridgeInc/ingestion-callback/internal/storage"
 	"gopkg.in/yaml.v3"
 	"os"
 )
 
 // Config dependencies for the application
 type Config struct {
-	SQS sqsconsumer.Queue `yaml:"sqs"`
-	S3  storage.S3Config  `yaml:"s3"`
+	SQS SQSConfig `yaml:"sqs"`
+}
+
+type SQSConfig struct {
+	QueueName string `yaml:"queue_name"`
 }
 
 // ReadFromPaths reads from the provided paths and returns a populated Config struct
