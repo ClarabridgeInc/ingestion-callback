@@ -1,8 +1,15 @@
 package cmd
 
 import (
-	"ingestion-callback/internal/health"
+	"github.com/ClarabridgeInc/ingestion-callback/internal/callback"
+	"github.com/ClarabridgeInc/ingestion-callback/internal/health"
+	"github.com/ClarabridgeInc/ingestion-callback/internal/sqsconsumer"
+	"github.com/ClarabridgeInc/ingestion-callback/internal/storage"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"net/http"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -18,11 +25,11 @@ var (
 	}
 	serverCmd = &cobra.Command{
 		Use:           "server",
-		Short:         "Run go-services-seed server",
+		Short:         "Run ingestion-callback server",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			log := global.logger.Named("go-services.seed")
+			log := global.logger.Named("ingestion-callback")
 
 			// create http multiplexer
 			mux := http.NewServeMux()
@@ -32,12 +39,24 @@ var (
 
 			log.Debug(" >http handlers registered, starting server...")
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> parent of 1b95a0a (Merge pull request #2 from ClarabridgeInc/revert-1-DISC-29788)
 			rootContext := cmd.Context()
 			cfg, err := config.LoadDefaultConfig(rootContext)
 			if err != nil {
 				return err
 			}
 
+<<<<<<< HEAD
+=======
+			callbackExecutor := callback.NewCallbackExecutor(
+				callback.Config{
+					Timeout: 30 * time.Second,
+				},
+			)
+
+>>>>>>> parent of 1b95a0a (Merge pull request #2 from ClarabridgeInc/revert-1-DISC-29788)
 			consumer, err := sqsconsumer.NewConsumer(
 				rootContext, sqsconsumer.Config{
 					Logger:          log.Named("sqsconsumer.consumer"),
@@ -47,6 +66,7 @@ var (
 						Bucket: global.cfg.S3.Bucket,
 						Reader: s3.NewFromConfig(cfg),
 					},
+<<<<<<< HEAD
 					Executor: callback.NewCallbackExecutor(
 						callback.Config{
 							Timeout: 30 * time.Second,
@@ -57,6 +77,12 @@ var (
 			consumer.Consume(rootContext)
 =======
 >>>>>>> main
+=======
+					Executor: callbackExecutor,
+				},
+			)
+			consumer.Consume(rootContext)
+>>>>>>> parent of 1b95a0a (Merge pull request #2 from ClarabridgeInc/revert-1-DISC-29788)
 			return http.ListenAndServe(serverCmdFlags.port, mux)
 		},
 	}
