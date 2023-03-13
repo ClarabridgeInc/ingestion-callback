@@ -1,0 +1,16 @@
+#!groovy
+
+@Library('kubernetes') _
+
+golangBuildPipeline([
+    'teamName': 'data-pipelines',
+    'slackChannel': '#data-pipelines-bots',
+    'goBuildImageTag': '1.20',
+    'skipPublishImage': true,
+    'setLatestTagForBranch': 'main'
+]){
+    sh """
+      echo "Compiling protobuf and autogenerating code..."
+      make proto
+    """
+}
