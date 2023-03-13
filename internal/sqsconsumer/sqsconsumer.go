@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/ClarabridgeInc/ingestion-callback/internal/callback"
 	"github.com/ClarabridgeInc/ingestion-callback/internal/pb/services/ingest"
 	"github.com/ClarabridgeInc/ingestion-callback/internal/storage"
@@ -211,20 +212,15 @@ func NewConsumer(ctx context.Context, config Config) (Consumer, error) {
 		queueName: config.Name,
 		Executor:  config.Executor,
 	}
-	c.init(ctx)
-	return c, nil
-}
-
-func (c *Consumer) init(ctx context.Context) {
 	getQueueInput := &sqs.GetQueueUrlInput{
 		QueueName: &c.queueName,
 	}
 
 	queueUrlResult, err := GetQueueUrl(ctx, c.sqsClient, getQueueInput)
 	if err != nil {
-		c.Error("got an error while getting queue url:", zap.Error(err))
-		return
+		return Consumer{}, fmt.Errorf("got an error while getting queue url: %w", err)
 	}
 
 	c.queueUrl = queueUrlResult.QueueUrl
+	return c, nil
 }

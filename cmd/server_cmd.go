@@ -44,12 +44,6 @@ var (
 				return err
 			}
 
-			callbackExecutor := callback.NewCallbackExecutor(
-				callback.Config{
-					Timeout: 30 * time.Second,
-				},
-			)
-
 			consumer, err := sqsconsumer.NewConsumer(
 				rootContext, sqsconsumer.Config{
 					Logger:          log.Named("sqsconsumer.consumer"),
@@ -59,7 +53,11 @@ var (
 						Bucket: global.cfg.S3.Bucket,
 						Reader: s3.NewFromConfig(cfg),
 					},
-					Executor: callbackExecutor,
+					Executor: callback.NewCallbackExecutor(
+						callback.Config{
+							Timeout: 30 * time.Second,
+						},
+					),
 				},
 			)
 			consumer.Consume(rootContext)

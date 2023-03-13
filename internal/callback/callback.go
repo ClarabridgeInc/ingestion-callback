@@ -3,7 +3,6 @@ package callback
 import (
 	"context"
 	"fmt"
-	"github.com/pkg/errors"
 	"io"
 	"net/http"
 	"time"
@@ -20,16 +19,16 @@ type Config struct {
 func (c *Executor) Execute(ctx context.Context, uri string, body io.Reader) error {
 	req, err := http.NewRequestWithContext(ctx, "POST", uri, body)
 	if err != nil {
-		return fmt.Errorf("failed to create http request: %v", err)
+		return fmt.Errorf("failed to create http request: %w", err)
 	}
 
 	resp, err := c.Do(req)
 	if err != nil {
-		return fmt.Errorf("could not execute callback: %v", err)
+		return fmt.Errorf("could not execute callback: %w", err)
 	}
 
 	if resp.StatusCode != 200 {
-		return errors.New("callback execution failed with non 200 status code")
+		return fmt.Errorf("callback execution failed with non 200 status code: %w", err)
 	}
 
 	return nil
