@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/ClarabridgeInc/ingestion-callback/internal/config"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"ingestion-callback/internal/config"
 	"os"
 
 	"github.com/spf13/cobra"
